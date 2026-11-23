@@ -19,14 +19,64 @@
 	#debug-console-output { flex:1; min-height:0; margin:0; padding:8px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
 	#debug-console-output .warn { color:#ffd166; }
 	#debug-console-output .error { color:#ff7777; }
+	#launcher { max-width:980px; margin:18px auto; padding:18px; box-sizing:border-box; color:#ddd; background:#151515; border:1px solid #444; font:14px/1.45 system-ui,sans-serif; }
+	#launcher h1,#launcher h2 { color:#eee; margin:0 0 10px; }
+	#launcher h1 { font-size:25px; }
+	#launcher h2 { font-size:17px; margin-top:18px; }
+	#launcher p { margin:6px 0 12px; }
+	.launch-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; }
+	.launch-field { display:flex; flex-direction:column; gap:5px; min-width:0; }
+	.launch-field input,.launch-field textarea { box-sizing:border-box; width:100%; padding:9px; color:#eee; background:#080808; border:1px solid #555; border-radius:3px; font:13px monospace; }
+	.launch-field textarea { min-height:76px; resize:vertical; }
+	.launch-options { display:flex; flex-wrap:wrap; gap:10px 20px; margin:10px 0; }
+	.launch-options label { display:flex; align-items:center; gap:7px; }
+	.launch-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+	#launcher button { padding:8px 12px; color:#eee; background:#303030; border:1px solid #666; border-radius:3px; cursor:pointer; }
+	#launcher button:hover { background:#444; }
+	#begin { font-weight:700; background:#245b2d !important; }
+	#begin:disabled { opacity:.5; cursor:wait; }
+	#launch-help { color:#aaa; font-size:12px; }
+	#launch-summary { color:#9bd49b; font:12px monospace; }
 	</style>
   </head>
   <body ondrop="gotdrop(event);" ondragover="event.preventDefault()">
 	<div class="emscripten" id="status">Please allow/unblock our javascript to play.</div>
-	<div id="dropzone" ondrop="gotdrop(event);" ondragover="event.preventDefault()" hidden=1>Drop Zone</div>
-	<button type="button" onclick="adduserfile()" id="addfile" hidden=1>Add File(s)</button>
-	<button type="button" onclick="addurlfile()" id="addurl" hidden=1>Add From URL</button>
-	<button type="button" onclick="begin()" id="begin" hidden=1>Click To Begin!</button>
+	<section id="launcher">
+		<h1>FTE Engine (Browser Port)</h1>
+		<p>Choose your game files, configure startup arguments, then launch.</p>
+		<div class="launch-actions">
+			<button type="button" onclick="adduserfile()" id="addfile" hidden>Add File(s)</button>
+			<button type="button" onclick="document.getElementById('directory-input').click()">Add Entire Folder</button>
+			<button type="button" onclick="addurlfile()" id="addurl" hidden>Add From URL</button>
+			<input id="directory-input" type="file" webkitdirectory directory multiple hidden>
+		</div>
+		<div id="dropzone" ondragover="event.preventDefault()">Drag game folders or files here.</div>
+		<div class="launch-grid">
+			<label class="launch-field">Game directory for individual files
+				<input id="gamedir" value="id1" placeholder="id1">
+			</label>
+			<label class="launch-field">Mod directory (-game)
+				<input id="game-arg" placeholder="e.g. mymod">
+			</label>
+			<label class="launch-field">Manifest (-manifest)
+				<input id="manifest-arg" placeholder="e.g. default.fmf">
+			</label>
+		</div>
+		<h2>Startup arguments / commands</h2>
+		<label class="launch-field">Arguments passed to FTE
+			<textarea id="launch-args" spellcheck="false" placeholder='Example: +connect wss://server.example +set vid_width 1280'></textarea>
+		</label>
+		<div id="launch-help">Arguments are split like a shell command line: quoted values stay together. FTE console commands can be prefixed with +, for example: +map e1m1 or +set name "Player".</div>
+		<h2>Web-port options</h2>
+		<div class="launch-options">
+			<label title="Disables FTE's home/user directory behavior."><input type="checkbox" id="opt-nohome"> Disable home directory (-nohome)</label>
+			<label title="Starts the engine with the console toggle command."><input type="checkbox" id="opt-console"> Open console on startup (+toggleconsole)</label>
+		</div>
+		<div id="launch-summary">0 session files loaded</div>
+		<div class="launch-actions">
+			<button type="button" onclick="begin()" id="begin">Click To Begin!</button>
+		</div>
+	</section>
 	<div class="emscripten">
 		<progress value="0" max="100" id="progress" hidden=1></progress>  
 	</div>
@@ -176,15 +226,61 @@ var Module = {
 		}
 	],
 };
+function splitArguments(text)
+{
+	// Small shell-like tokenizer: supports single/double quotes and backslash escapes.
+	const out = [];
+	let token = "", quote = null, escaped = false, active = false;
+	for (const ch of text)
+	{
+		if (escaped) { token += ch; escaped = false; active = true; continue; }
+		if (ch === "\\" && quote !== "'") { escaped = true; active = true; continue; }
+		if (quote)
+		{
+			if (ch === quote) quote = null;
+			else token += ch;
+			active = true;
+			continue;
+		}
+		if (ch === "'" || ch === '"') { quote = ch; active = true; continue; }
+		if (/\\s/.test(ch))
+		{
+			if (active) { out.push(token); token = ""; active = false; }
+			continue;
+		}
+		token += ch; active = true;
+	}
+	if (escaped) token += "\\";
+	if (active) out.push(token);
+	if (quote) throw new Error("Unclosed quote in startup arguments.");
+	return out;
+}
+
+function prepareLaunchArguments()
+{
+	const args = splitArguments(document.getElementById("launch-args").value);
+	const game = document.getElementById("game-arg").value.trim();
+	const manifest = document.getElementById("manifest-arg").value.trim();
+	if (document.getElementById("opt-nohome").checked) args.unshift("-nohome");
+	if (game) args.unshift("-game", game);
+	if (manifest) args.unshift("-manifest", manifest);
+	if (document.getElementById("opt-console").checked) args.push("+toggleconsole");
+	Module.arguments = args;
+	console.info("FTE startup arguments:", args);
+}
+
 function begin()
 {
 	if (Module.began)
 		return;
+	try { prepareLaunchArguments(); }
+	catch (error) { alert(error.message); return; }
 	Module.began = true;
 	document.getElementById('dropzone').hidden = true;
 	document.getElementById('addfile').hidden = true;
 	document.getElementById('addurl').hidden = true;
 	document.getElementById('begin').hidden = true;
+	document.getElementById('launcher').hidden = true;
 	Module.setStatus('Downloading...');
 
 	// make a script. do it the hard way for the error.
@@ -292,9 +388,9 @@ function adduserfile()
 		})
 	.then((r)=>
 		{
-			let gamedir = prompt("Please enter gamedir", "id1");
+			let gamedir = document.getElementById("gamedir").value.trim();
 			if (gamedir != "")
-				gamedir = gamedir+"/";
+				gamedir = gamedir.replace(/\/+$/, "")+"/";
 			for (let i of r)
 			{
 				i.getFile().then((f)=>
@@ -344,8 +440,7 @@ function showfiles()
 	Module.setStatus('');
 	document.getElementById('dropzone').hidden = false;
 	document.getElementById('begin').hidden = false;
-	let nt = "<H1>FTE Engine (Browser Port)</H1>";
-	nt = nt + "Drag gamedirs or individual package files here to make them available!<pre>";
+	let nt = "Drag game folders or files here, or use Add Entire Folder.<pre>";
 	let keys = Object.keys(Module.files);
 	nt += "Session Files ("+keys.length+"):<br/>";
 	for(let i = 0; i < keys.length; i++)
@@ -403,57 +498,92 @@ function showfiles()
 	catch(e){}
 
 	nt += "</pre>";
+	document.getElementById("launch-summary").textContent = keys.length + " session files loaded";
 
 	nt += "<p/>Cookie Disclaimer:<small> This page does not use cookies, however it does use local storage to save configs+games (consistent with natively installed games).<br/>frag-net (our matchmaking service) does not utilise any tracking beyond the session in question, but it does allow connecting to third-party servers which may incorporate ranking systems or accounts or other tracking according to that server's privacy/tracking policies.</small>"
 	document.getElementById('dropzone').innerHTML = nt;
 }
-function scanfiles(item,path)
-{	//for directory drops
-	if (item.isFile)
-	{
-		if (path=="")
-		{
-			path = prompt("Please enter gamedir", "id1");
-			if (path != "")
-				path = path+"/";
-		}
-		item.file(function(f)
-		{
-			let n = fixupfilepath(f.name, path);
-			Module.files[n]=f.arrayBuffer();	//actually a promise...
-			Module.files[n].then(buf=>{Module.files[n]=buf;showfiles();});	//try and resolve it now.
-    	});
-	}
-	else if (item.isDirectory)
-	{
-		// Get folder contents
-		var dirReader = item.createReader();
-		dirReader.readEntries(function(entries)
-		{
-			for (var i=0; i<entries.length; i++)
-				scanfiles(entries[i], path + item.name + "/");
-		});
-	}
-}
-function gotdrop(ev)
-{	//user drag+dropped something. 
-	ev.preventDefault();
-	for (var i = 0; i < ev.dataTransfer.items.length; i++)
-		if (ev.dataTransfer.items[i].webkitGetAsEntry)
-		{
-			var d = ev.dataTransfer.items[i].webkitGetAsEntry();
-			if (d)
-				scanfiles(d, "");
-		}
-		else if (ev.dataTransfer.items[i].kind === 'file')
-		{
-			var f = ev.dataTransfer.items[i].getAsFile();
-			var n = fixupfilepath(f.name, "");
-			Module.files[n]=f.arrayBuffer();	//actually a promise...
-			Module.files[n].then(buf=>{Module.files[n]=buf;showfiles();});	//try and resolve it now.
-		}
+async function addFileObject(file, relativePath, rootName)
+{
+	const clean = (relativePath || file.name).replace(/^\/+/, "");
+	const root = (rootName === null ? (document.getElementById("gamedir").value || "id1") : (rootName || "")).trim().replace(/^\/+|\/+$/g, "");
+	let target = clean;
+	if (rootName !== null)
+		target = root ? root + "/" + clean : clean;
+	else
+		target = fixupfilepath(file.name, root ? root + "/" : "");
+	Module.files[target] = await file.arrayBuffer();
 	showfiles();
 }
+
+async function walkDroppedEntry(entry, relativePath, rootName)
+{
+	if (entry.isFile)
+	{
+		const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+		await addFileObject(file, relativePath + file.name, rootName);
+		return;
+	}
+	if (entry.isDirectory)
+	{
+		const reader = entry.createReader();
+		let entries = [];
+		// Chromium's readEntries returns batches; keep reading until exhausted.
+		while (true)
+		{
+			const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+			if (!batch.length) break;
+			entries = entries.concat(batch);
+		}
+		for (const child of entries)
+			await walkDroppedEntry(child, relativePath + entry.name + "/", rootName);
+	}
+}
+
+async function addDirectoryFiles(fileList)
+{
+	const files = Array.from(fileList || []);
+	if (!files.length) return;
+	for (const file of files)
+	{
+		// webkitRelativePath preserves nested folders and the selected folder name.
+		const rel = file.webkitRelativePath || file.name;
+		// webkitRelativePath already includes the selected folder and nested paths.
+		Module.files[rel] = await file.arrayBuffer();
+	}
+	showfiles();
+}
+
+document.getElementById("directory-input").addEventListener("change", event => {
+	addDirectoryFiles(event.target.files).catch(error => { console.error(error); alert("Folder import failed: " + error.message); });
+	event.target.value = "";
+});
+
+async function gotdrop(ev)
+{
+	ev.preventDefault();
+	const items = Array.from(ev.dataTransfer.items || []);
+	for (const item of items)
+	{
+		if (item.webkitGetAsEntry)
+		{
+			const entry = item.webkitGetAsEntry();
+			if (entry)
+			{
+				const folderRoot = entry.isDirectory ? "" : null;
+				await walkDroppedEntry(entry, "", folderRoot);
+				continue;
+			}
+		}
+		if (item.kind === "file")
+		{
+			const file = item.getAsFile();
+			if (file) await addFileObject(file, file.name, null);
+		}
+	}
+	showfiles();
+}
+
 if (window.showOpenFilePicker)
 	addfile.hidden = false;
 addurl.hidden = false;
