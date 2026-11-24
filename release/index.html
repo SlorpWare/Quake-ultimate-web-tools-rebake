@@ -28,8 +28,8 @@
 	<button type="button" id="adddirectory" onclick="document.getElementById('directory-input').click()">Add Directory</button>
 	<input type="file" id="directory-input" webkitdirectory directory multiple hidden>
 	<div id="memory-warning" style="color:#d9ad55;font:12px sans-serif;margin:8px 0;">Warning: uploaded files are stored in browser memory. Uploading over 2 GB of assets may crash the browser. Trim huge mods (such as Slayer's Testament) before uploading.</div>
-	<label id="arguments-label" for="fte-arguments" style="display:block;margin:8px 0;color:#aaa;">FTE startup arguments:</label>
-	<textarea id="fte-arguments" rows="3" style="display:block;box-sizing:border-box;width:min(700px,96%);margin:4px auto 10px;background:#111;color:#ddd;border:1px solid #555;padding:6px;" placeholder='Example: -game mymod +map e1m1'></textarea>
+	<label id="arguments-label" for="fte-arguments" style="margin:8px 0;color:#aaa;">FTE startup arguments:</label>
+	<textarea id="fte-arguments" rows="3" style="box-sizing:border-box;width:min(700px,96%);margin:4px auto 10px;background:#111;color:#ddd;border:1px solid #555;padding:6px;" placeholder='Example: -game mymod +map e1m1'></textarea>
 	<div id="transfer-progress" hidden style="width:min(700px,96%);margin:8px auto;color:#ddd;font:12px monospace;"><div id="transfer-progress-label">Preparing...</div><progress id="transfer-progress-bar" value="0" max="100" style="width:100%;"></progress></div>
 	<button type="button" onclick="addurlfile()" id="addurl" hidden=1>Add From URL</button>
 	<button type="button" onclick="begin()" id="begin" hidden=1>Click To Begin!</button>
